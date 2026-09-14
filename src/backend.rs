@@ -1,4 +1,7 @@
+pub mod image_copy;
 pub mod portal;
+
+use std::{sync::mpsc::{self, Receiver}, thread};
 
 use crate::geometry::Point;
 
@@ -13,6 +16,48 @@ pub enum BackendEvent {
         backend: &'static str,
         message: String,
     },
+}
+
+pub fn spawn_auto() -> Receiver<BackendEvent> {
+    let (tx, rx) = mpsc::channel();
+
+    thread::Builder::new()
+        .name("wayeyes-backend-auto".into())
+        .spawn(move || {
+            let direct = image_copy::spawn();
+            let mut direct_ready = false;
+
+            while let Ok(event) = direct.recv() {
+                match &event {
+                    BackendEvent::Ready { .. } => direct_ready = true,
+                    BackendEvent::Failed { .. } if !direct_ready => {
+                        let _ = tx.send(event);
+                        break;
+                    }
+                    BackendEvent::Failed { .. } => {
+                        let _ = tx.send(event);
+                        return;
+                    }
+                    _ => {}
+                }
+
+                if tx.send(event).is_err() {
+                    return;
+                }
+            }
+
+            // Direct Wayland was unavailable before becoming ready. Try the
+            // portal backend; if that also fails, the GTK-local path remains.
+            let portal = portal::spawn();
+            while let Ok(event) = portal.recv() {
+                if tx.send(event).is_err() {
+                    return;
+                }
+            }
+        })
+        .expect("failed to spawn backend selection thread");
+
+    rx
 }
 
 #[derive(Debug, Clone, Copy, Default)]
