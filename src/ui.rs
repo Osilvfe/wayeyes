@@ -151,7 +151,7 @@ fn draw_eyes(cr: &gtk::cairo::Context, width: f64, height: f64, target: Option<P
     let eyes = eye_pair(width, height);
     let target = target.unwrap_or(Point::new(width * 0.5, height * 0.5));
 
-    cr.set_source_rgb(0.96, 0.96, 0.96);
+    cr.set_source_rgb(0.0, 0.0, 0.0);
     let _ = cr.paint();
 
     for eye in eyes {
