@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, bail};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 use wayland_client::{
     Connection, Dispatch, QueueHandle, WEnum, delegate_noop,
     protocol::{wl_output, wl_pointer, wl_registry, wl_seat},
@@ -18,7 +18,8 @@ use wayland_protocols::{
         },
         image_copy_capture::v1::client::{
             ext_image_copy_capture_cursor_session_v1::{self, ExtImageCopyCaptureCursorSessionV1},
-            ext_image_copy_capture_manager_v1::ExtImageCopyCaptureManagerV1,
+            ext_image_copy_capture_manager_v1::{self, ExtImageCopyCaptureManagerV1},
+            ext_image_copy_capture_session_v1::{self, ExtImageCopyCaptureSessionV1},
         },
     },
     xdg::xdg_output::zv1::client::{
@@ -39,10 +40,13 @@ struct OutputState {
     output: wl_output::WlOutput,
     xdg_output: Option<ZxdgOutputV1>,
     source: Option<ExtImageCaptureSourceV1>,
+    capture_session: Option<ExtImageCopyCaptureSessionV1>,
     cursor_session: Option<ExtImageCopyCaptureCursorSessionV1>,
     wl_origin: Option<(i32, i32)>,
     logical_origin: Option<(i32, i32)>,
     logical_size: Option<(i32, i32)>,
+    buffer_size: Option<(u32, u32)>,
+    transform: wl_output::Transform,
 }
 
 impl OutputState {
@@ -51,15 +55,29 @@ impl OutputState {
             output,
             xdg_output: None,
             source: None,
+            capture_session: None,
             cursor_session: None,
             wl_origin: None,
             logical_origin: None,
             logical_size: None,
+            buffer_size: None,
+            transform: wl_output::Transform::Normal,
         }
     }
 
     fn origin(&self) -> (i32, i32) {
         self.logical_origin.or(self.wl_origin).unwrap_or((0, 0))
+    }
+
+    fn map_cursor(&self, x: i32, y: i32) -> Point {
+        map_cursor_coordinates(
+            self.origin(),
+            self.logical_size,
+            self.buffer_size,
+            self.transform,
+            x,
+            y,
+        )
     }
 }
 
@@ -104,12 +122,28 @@ impl WaylandState {
 
     fn prepare_outputs(&mut self, qh: &QueueHandle<Self>) {
         let source_manager = self.source_manager.clone();
+        let capture_manager = self.capture_manager.clone();
         let xdg_output_manager = self.xdg_output_manager.clone();
 
         for (id, output) in &mut self.outputs {
             if output.source.is_none() {
                 if let Some(manager) = source_manager.as_ref() {
                     output.source = Some(manager.create_source(&output.output, qh, ()));
+                }
+            }
+
+            if output.capture_session.is_none() {
+                if let (Some(manager), Some(source)) =
+                    (capture_manager.as_ref(), output.source.as_ref())
+                {
+                    // This session is kept only to receive buffer_size constraints.
+                    // WayEyes never creates a frame or submits a capture buffer.
+                    output.capture_session = Some(manager.create_session(
+                        source,
+                        ext_image_copy_capture_manager_v1::Options::empty(),
+                        qh,
+                        *id,
+                    ));
                 }
             }
 
@@ -157,9 +191,59 @@ impl WaylandState {
         let Some(output) = self.outputs.get(&id) else {
             return;
         };
-        let (origin_x, origin_y) = output.origin();
-        let global = Point::new(f64::from(origin_x + x), f64::from(origin_y + y));
+        let global = output.map_cursor(x, y);
+        trace!(
+            backend = BACKEND_NAME,
+            output = id.0,
+            raw_x = x,
+            raw_y = y,
+            global_x = global.x,
+            global_y = global.y,
+            "mapped direct Wayland cursor position"
+        );
         let _ = self.tx.send(BackendEvent::Pointer(global));
+    }
+}
+
+fn map_cursor_coordinates(
+    origin: (i32, i32),
+    logical_size: Option<(i32, i32)>,
+    buffer_size: Option<(u32, u32)>,
+    transform: wl_output::Transform,
+    x: i32,
+    y: i32,
+) -> Point {
+    let (scale_x, scale_y) = match (logical_size, buffer_size) {
+        (Some((logical_width, logical_height)), Some((buffer_width, buffer_height)))
+            if logical_width > 0 && logical_height > 0 && buffer_width > 0 && buffer_height > 0 =>
+        {
+            let (transformed_width, transformed_height) =
+                transformed_buffer_size(buffer_width, buffer_height, transform);
+            (
+                f64::from(logical_width) / f64::from(transformed_width),
+                f64::from(logical_height) / f64::from(transformed_height),
+            )
+        }
+        _ => (1.0, 1.0),
+    };
+
+    Point::new(
+        f64::from(origin.0) + f64::from(x) * scale_x,
+        f64::from(origin.1) + f64::from(y) * scale_y,
+    )
+}
+
+fn transformed_buffer_size(
+    width: u32,
+    height: u32,
+    transform: wl_output::Transform,
+) -> (u32, u32) {
+    match transform {
+        wl_output::Transform::_90
+        | wl_output::Transform::_270
+        | wl_output::Transform::Flipped90
+        | wl_output::Transform::Flipped270 => (height, width),
+        _ => (width, height),
     }
 }
 
@@ -197,8 +281,8 @@ fn run(tx: Sender<BackendEvent>) -> anyhow::Result<()> {
         .context("failed to enumerate Wayland globals")?;
     state.validate_globals()?;
 
-    // Create output capture sources and xdg-output metadata objects. Seat
-    // capabilities from the bindings above are delivered on the next roundtrip.
+    // Create output capture sources, lightweight constraint sessions and
+    // xdg-output metadata objects. No image frames are ever requested.
     state.prepare_outputs(&qh);
     queue
         .roundtrip(&mut state)
@@ -313,8 +397,17 @@ impl Dispatch<wl_output::WlOutput, OutputId> for WaylandState {
             return;
         };
 
-        if let wl_output::Event::Geometry { x, y, .. } = event {
+        if let wl_output::Event::Geometry {
+            x,
+            y,
+            transform,
+            ..
+        } = event
+        {
             output.wl_origin = Some((x, y));
+            if let WEnum::Value(transform) = transform {
+                output.transform = transform;
+            }
         }
     }
 }
@@ -351,6 +444,42 @@ impl Dispatch<ZxdgOutputV1, OutputId> for WaylandState {
                     width,
                     height,
                     "xdg-output logical size"
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<ExtImageCopyCaptureSessionV1, OutputId> for WaylandState {
+    fn event(
+        state: &mut Self,
+        _session: &ExtImageCopyCaptureSessionV1,
+        event: ext_image_copy_capture_session_v1::Event,
+        id: &OutputId,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        let Some(output) = state.outputs.get_mut(id) else {
+            return;
+        };
+
+        match event {
+            ext_image_copy_capture_session_v1::Event::BufferSize { width, height } => {
+                output.buffer_size = Some((width, height));
+                debug!(
+                    backend = BACKEND_NAME,
+                    output = id.0,
+                    width,
+                    height,
+                    "image-copy buffer size"
+                );
+            }
+            ext_image_copy_capture_session_v1::Event::Stopped => {
+                warn!(
+                    backend = BACKEND_NAME,
+                    output = id.0,
+                    "image-copy constraint session stopped"
                 );
             }
             _ => {}
@@ -396,3 +525,63 @@ delegate_noop!(WaylandState: ExtOutputImageCaptureSourceManagerV1);
 delegate_noop!(WaylandState: ExtImageCaptureSourceV1);
 delegate_noop!(WaylandState: ExtImageCopyCaptureManagerV1);
 delegate_noop!(WaylandState: ZxdgOutputManagerV1);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_point_close(actual: Point, expected: Point) {
+        assert!((actual.x - expected.x).abs() < 1e-9, "x: {actual:?}");
+        assert!((actual.y - expected.y).abs() < 1e-9, "y: {actual:?}");
+    }
+
+    #[test]
+    fn maps_fractionally_scaled_output_into_logical_coordinates() {
+        let point = map_cursor_coordinates(
+            (-1600, 100),
+            Some((1600, 900)),
+            Some((2560, 1440)),
+            wl_output::Transform::Normal,
+            1280,
+            720,
+        );
+
+        assert_point_close(point, Point::new(-800.0, 550.0));
+    }
+
+    #[test]
+    fn rotated_output_uses_transformed_buffer_dimensions() {
+        let point = map_cursor_coordinates(
+            (300, -200),
+            Some((720, 1280)),
+            Some((1920, 1080)),
+            wl_output::Transform::_90,
+            540,
+            960,
+        );
+
+        assert_point_close(point, Point::new(660.0, 440.0));
+    }
+
+    #[test]
+    fn flipped_rotated_output_also_swaps_axes() {
+        assert_eq!(
+            transformed_buffer_size(2560, 1440, wl_output::Transform::Flipped270),
+            (1440, 2560)
+        );
+    }
+
+    #[test]
+    fn falls_back_to_unscaled_coordinates_until_metadata_arrives() {
+        let point = map_cursor_coordinates(
+            (-500, 25),
+            Some((1600, 900)),
+            None,
+            wl_output::Transform::Normal,
+            200,
+            100,
+        );
+
+        assert_point_close(point, Point::new(-300.0, 125.0));
+    }
+}
