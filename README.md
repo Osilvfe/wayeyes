@@ -6,31 +6,60 @@ WayEyes is a Rust desktop toy and protocol experiment: two eyes that follow the 
 
 ## Status
 
-### Milestone 0.2 — global pointer backend
+### Milestone 0.3 — direct Wayland cursor tracking
 
 - [x] Rust project
 - [x] GTK4 native window
-- [x] Cairo eye rendering
+- [x] Cairo eye rendering with a pure-black default background
 - [x] Local Wayland pointer tracking
 - [x] Geometry and global/local coordinate calibration
+- [x] Pure Wayland `ext-image-copy-capture-v1` cursor backend
+- [x] `xdg-output` logical output origin mapping
 - [x] ScreenCast Portal capability probing
 - [x] ScreenCast session with `CursorMode::Metadata`
 - [x] PipeWire `SPA_META_Cursor` reader
-- [x] Multi-monitor stream origin/scale mapping
-- [x] Portal events bridged back to the GTK main thread
+- [x] Multi-monitor portal stream origin/scale mapping
+- [x] Backend events bridged back to the GTK main thread
+- [x] Automatic backend order: direct Wayland → Portal → local
 - [x] Unit tests and CI
-- [ ] Pure Wayland `ext-image-copy-capture-v1` cursor backend
+- [ ] Harden direct-backend transform/fractional-scale mapping across more compositors
 - [ ] Persisted portal sessions where supported
 - [ ] Additional compositor-specific fallbacks where useful
 - [ ] Layer-shell mode
 
-When the selected portal backend supports cursor metadata, WayEyes can continue tracking the pointer after it leaves the WayEyes surface. The local Wayland pointer event is still useful: it pairs a surface-local sample with the global sample and calibrates the WayEyes surface origin.
+On compositors implementing `ext-image-copy-capture-v1`, WayEyes can receive pointer-cursor position events directly from Wayland without capturing screen frames or starting PipeWire. Hyprland is the first target for this path. Its permission system may ask for the `cursorpos` permission before position events are delivered.
 
-If the portal does not advertise metadata cursor mode, `--backend auto` currently keeps the local tracker working. A direct Wayland cursor backend based on `ext-image-copy-capture-v1` is the next compatibility target.
+The ScreenCast Portal + PipeWire metadata backend remains available as a fallback on desktops that expose `CursorMode::Metadata`. Surface-local GTK pointer events are always useful because they pair a local sample with a global sample and calibrate the WayEyes surface origin.
 
 ## How global tracking works
 
-Wayland core protocols intentionally do not expose unrestricted global pointer coordinates or global surface positions to ordinary clients. The current generic backend therefore uses the desktop ScreenCast portal and requests:
+The preferred backend uses the direct Wayland capture protocols:
+
+```text
+wl_output
+    │
+    ├── ext_output_image_capture_source_v1
+    │              │
+    │              ▼
+    │   ext_image_copy_capture_cursor_session_v1
+    │              │
+    │        enter / leave / position
+    │              │
+    └── xdg-output logical origin
+                   │
+                   ▼
+       global compositor coordinate
+                   │
+                   ▼
+              CursorModel
+                   │
+                   ▼
+                  👀
+```
+
+This cursor-only path does not request image frames. The current coordinate conversion is intentionally focused on Hyprland first; output transforms and fractional-scale behavior will be hardened as WayEyes is tested on more compositors.
+
+When direct cursor capture is unavailable, WayEyes can fall back to the ScreenCast Portal path:
 
 ```text
 ScreenCast Portal
@@ -43,22 +72,11 @@ ScreenCast Portal
           ▼
    SPA_META_Cursor
           │
-          ▼
- stream cursor position
-          │
    + portal stream position/size
           │
           ▼
  global compositor coordinate
-          │
-          ▼
-      CursorModel
-          │
-          ▼
-         👀
 ```
-
-Portal stream coordinates can be in video pixels while the compositor reports logical stream geometry. WayEyes maps the negotiated PipeWire video size back into the compositor coordinate space before sending the point to `CursorModel`.
 
 When the pointer is over the WayEyes surface:
 
@@ -83,13 +101,19 @@ Run with automatic backend selection:
 cargo run --release
 ```
 
+Force the direct Wayland cursor backend:
+
+```bash
+cargo run --release -- --backend wayland
+```
+
 Force the ScreenCast Portal + PipeWire backend:
 
 ```bash
 cargo run --release -- --backend portal
 ```
 
-Use only surface-local Wayland pointer events, without requesting portal access:
+Use only surface-local pointer events:
 
 ```bash
 cargo run --release -- --backend local
@@ -101,13 +125,22 @@ For a small undecorated widget-like window:
 cargo run --release -- --undecorated --width 260 --height 150
 ```
 
-Enable logs with:
+WayEyes currently defaults to GTK's Cairo renderer because some Wayland GPU-renderer stacks display `GtkDrawingArea` content as a black frame. Renderer selection can be overridden explicitly:
 
 ```bash
-RUST_LOG=wayeyes=debug cargo run
+cargo run --release -- --renderer auto
+cargo run --release -- --renderer gl
+cargo run --release -- --renderer vulkan
+cargo run --release -- --renderer cairo
 ```
 
-The portal backend may present a monitor-sharing chooser. Select the monitor(s) that WayEyes should observe. Compositor/portal implementations that do not expose `Metadata` cursor mode will currently fall back to local tracking in automatic mode.
+Enable detailed logs with:
+
+```bash
+RUST_LOG=wayeyes=debug cargo run --release -- --backend wayland
+```
+
+With the direct backend, move the pointer over the WayEyes window once after startup to give the coordinate model a fresh local/global calibration sample. After that, the pupils should continue following the pointer when it leaves the window.
 
 ## Architecture
 
@@ -121,9 +154,9 @@ WayEyes
 │   ├── global pointer coordinate
 │   └── calibrated surface origin
 └── pointer backends
-    ├── local Wayland events
+    ├── ext-image-copy-capture-v1 + xdg-output
     ├── XDG ScreenCast Portal + PipeWire metadata
-    └── direct Wayland/compositor fallbacks (next)
+    └── local Wayland/GTK pointer events
 ```
 
 The renderer and coordinate model do not depend on the global pointer source. This is intentional: future backends can feed the same `BackendEvent::Pointer` path without changing the eye rendering code.
