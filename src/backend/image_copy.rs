@@ -233,11 +233,7 @@ fn map_cursor_coordinates(
     )
 }
 
-fn transformed_buffer_size(
-    width: u32,
-    height: u32,
-    transform: wl_output::Transform,
-) -> (u32, u32) {
+fn transformed_buffer_size(width: u32, height: u32, transform: wl_output::Transform) -> (u32, u32) {
     match transform {
         wl_output::Transform::_90
         | wl_output::Transform::_270
@@ -397,13 +393,7 @@ impl Dispatch<wl_output::WlOutput, OutputId> for WaylandState {
             return;
         };
 
-        if let wl_output::Event::Geometry {
-            x,
-            y,
-            transform,
-            ..
-        } = event
-        {
+        if let wl_output::Event::Geometry { x, y, transform, .. } = event {
             output.wl_origin = Some((x, y));
             if let WEnum::Value(transform) = transform {
                 output.transform = transform;
