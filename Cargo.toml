@@ -16,6 +16,8 @@ pipewire = "0.10.1"
 tokio = { version = "1.51", features = ["rt", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+wayland-client = "0.31.15"
+wayland-protocols = { version = "0.32.13", features = ["client", "staging", "unstable"] }
 
 [profile.release]
 lto = "thin"
