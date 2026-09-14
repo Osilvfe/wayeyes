@@ -96,6 +96,14 @@ fn build_ui(app: &Application, cli: &Cli) {
     {
         let cursor = Rc::clone(&cursor);
         let area = area.clone();
+        motion.connect_enter(move |_controller, x, y| {
+            cursor.borrow_mut().set_local_on_enter(Point::new(x, y));
+            area.queue_draw();
+        });
+    }
+    {
+        let cursor = Rc::clone(&cursor);
+        let area = area.clone();
         motion.connect_motion(move |_controller, x, y| {
             cursor.borrow_mut().set_local(Point::new(x, y));
             area.queue_draw();
