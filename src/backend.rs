@@ -1,4 +1,19 @@
+pub mod portal;
+
 use crate::geometry::Point;
+
+#[derive(Debug, Clone)]
+pub enum BackendEvent {
+    Ready {
+        backend: &'static str,
+        streams: usize,
+    },
+    Pointer(Point),
+    Failed {
+        backend: &'static str,
+        message: String,
+    },
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CursorModel {
@@ -13,7 +28,6 @@ impl CursorModel {
         self.try_calibrate();
     }
 
-    #[allow(dead_code)]
     pub fn set_global(&mut self, point: Point) {
         self.global = Some(point);
     }
