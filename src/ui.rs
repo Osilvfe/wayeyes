@@ -1,4 +1,10 @@
-use std::{cell::RefCell, f64::consts::TAU, rc::Rc, time::Duration};
+use std::{
+    cell::RefCell,
+    f64::consts::TAU,
+    rc::Rc,
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
 
 use gtk::glib::{self, ControlFlow};
 use gtk::prelude::*;
@@ -10,6 +16,7 @@ use crate::cli::{BackendKind, Cli};
 use crate::geometry::{Point, eye_pair, pupil_center};
 
 const APP_ID: &str = "io.github.osilvfe.wayeyes";
+static FIRST_DRAW: AtomicBool = AtomicBool::new(true);
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
     let app = Application::builder().application_id(APP_ID).build();
@@ -36,6 +43,10 @@ fn build_ui(app: &Application, cli: &Cli) {
     {
         let cursor = Rc::clone(&cursor);
         area.set_draw_func(move |_area, cr, width, height| {
+            if FIRST_DRAW.swap(false, Ordering::Relaxed) {
+                info!(width, height, "drawing first WayEyes frame");
+            }
+
             draw_eyes(
                 cr,
                 width as f64,
@@ -104,27 +115,36 @@ fn draw_eyes(cr: &gtk::cairo::Context, width: f64, height: f64, target: Option<P
     let eyes = eye_pair(width, height);
     let target = target.unwrap_or(Point::new(width * 0.5, height * 0.5));
 
-    cr.set_source_rgb(0.96, 0.96, 0.96);
+    // Use deliberately high contrast while the renderer is being validated.
+    cr.set_source_rgb(0.18, 0.18, 0.18);
     let _ = cr.paint();
 
     for eye in eyes {
-        // Paint the whole eye while the ellipse transform is active. Keeping
-        // construction and painting under the same CTM avoids backend-specific
-        // surprises around restoring a transformed path before fill/stroke.
-        let _ = cr.save();
-        cr.translate(eye.center.x, eye.center.y);
-        cr.scale(eye.radius_x, eye.radius_y);
-        cr.arc(0.0, 0.0, 1.0, 0.0, TAU);
-        cr.set_source_rgb(1.0, 1.0, 1.0);
-        let _ = cr.fill_preserve();
-        cr.set_source_rgb(0.08, 0.08, 0.08);
-        cr.set_line_width(2.5 / eye.radius_x.min(eye.radius_y));
-        let _ = cr.stroke();
-        let _ = cr.restore();
+        draw_eye_outline(cr, eye.center, eye.radius_x, eye.radius_y);
 
         let pupil = pupil_center(eye, target);
+        cr.new_path();
         cr.arc(pupil.x, pupil.y, eye.pupil_radius, 0.0, TAU);
-        cr.set_source_rgb(0.05, 0.05, 0.05);
+        cr.set_source_rgb(0.0, 0.0, 0.0);
         let _ = cr.fill();
     }
+}
+
+fn draw_eye_outline(
+    cr: &gtk::cairo::Context,
+    center: Point,
+    radius_x: f64,
+    radius_y: f64,
+) {
+    let _ = cr.save();
+    cr.translate(center.x, center.y);
+    cr.scale(radius_x, radius_y);
+    cr.new_path();
+    cr.arc(0.0, 0.0, 1.0, 0.0, TAU);
+    cr.set_source_rgb(1.0, 1.0, 1.0);
+    let _ = cr.fill_preserve();
+    cr.set_source_rgb(0.0, 0.0, 0.0);
+    cr.set_line_width(3.0 / radius_x.min(radius_y));
+    let _ = cr.stroke();
+    let _ = cr.restore();
 }
