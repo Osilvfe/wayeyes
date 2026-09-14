@@ -10,6 +10,29 @@ pub enum BackendKind {
     Local,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum RendererKind {
+    /// Let GTK select its normal platform renderer.
+    Auto,
+    /// Use GTK's Cairo fallback renderer.
+    Cairo,
+    /// Use GTK's OpenGL renderer.
+    Gl,
+    /// Use GTK's Vulkan renderer.
+    Vulkan,
+}
+
+impl RendererKind {
+    pub const fn gsk_name(self) -> Option<&'static str> {
+        match self {
+            Self::Auto => None,
+            Self::Cairo => Some("cairo"),
+            Self::Gl => Some("gl"),
+            Self::Vulkan => Some("vulkan"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Parser)]
 #[command(name = "wayeyes", version, about = "xeyes reimagined for Wayland")]
 pub struct Cli {
@@ -28,4 +51,8 @@ pub struct Cli {
     /// Pointer tracking backend.
     #[arg(long, value_enum, default_value_t = BackendKind::Auto)]
     pub backend: BackendKind,
+
+    /// GSK renderer. If omitted, WayEyes uses cairo unless GSK_RENDERER is already set.
+    #[arg(long, value_enum)]
+    pub renderer: Option<RendererKind>,
 }
