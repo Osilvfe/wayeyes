@@ -1,4 +1,8 @@
-use std::{collections::BTreeMap, sync::mpsc::{self, Receiver, Sender}, thread};
+use std::{
+    collections::BTreeMap,
+    sync::mpsc::{self, Receiver, Sender},
+    thread,
+};
 
 use anyhow::{Context, bail};
 use tracing::{debug, info, warn};
@@ -138,9 +142,8 @@ impl WaylandState {
                 continue;
             };
 
-            output.cursor_session = Some(
-                manager.create_pointer_cursor_session(source, &pointer, qh, *id),
-            );
+            output.cursor_session =
+                Some(manager.create_pointer_cursor_session(source, &pointer, qh, *id));
             count += 1;
         }
 
@@ -208,7 +211,11 @@ fn run(tx: Sender<BackendEvent>) -> anyhow::Result<()> {
     })
     .ok();
 
-    info!(backend = BACKEND_NAME, streams, "direct Wayland cursor capture ready");
+    info!(
+        backend = BACKEND_NAME,
+        streams,
+        "direct Wayland cursor capture ready"
+    );
 
     loop {
         queue
@@ -233,48 +240,36 @@ impl Dispatch<wl_registry::WlRegistry, ()> for WaylandState {
                 version,
             } => match interface.as_str() {
                 "wl_seat" => {
-                    let seat = registry.bind::<wl_seat::WlSeat, _, _>(
-                        name,
-                        version.min(9),
-                        qh,
-                        (),
-                    );
+                    let seat =
+                        registry.bind::<wl_seat::WlSeat, _, _>(name, version.min(9), qh, ());
                     state.seats.push(seat);
                 }
                 "wl_output" => {
                     let id = OutputId(name);
-                    let output = registry.bind::<wl_output::WlOutput, _, _>(
-                        name,
-                        version.min(4),
-                        qh,
-                        id,
-                    );
+                    let output =
+                        registry.bind::<wl_output::WlOutput, _, _>(name, version.min(4), qh, id);
                     state.outputs.insert(id, OutputState::new(output));
                 }
                 "ext_output_image_capture_source_manager_v1" => {
-                    state.source_manager = Some(
-                        registry.bind::<ExtOutputImageCaptureSourceManagerV1, _, _>(
+                    state.source_manager =
+                        Some(registry.bind::<ExtOutputImageCaptureSourceManagerV1, _, _>(
                             name,
                             1,
                             qh,
                             (),
-                        ),
-                    );
+                        ));
                 }
                 "ext_image_copy_capture_manager_v1" => {
-                    state.capture_manager = Some(
-                        registry.bind::<ExtImageCopyCaptureManagerV1, _, _>(name, 1, qh, ()),
-                    );
+                    state.capture_manager =
+                        Some(registry.bind::<ExtImageCopyCaptureManagerV1, _, _>(name, 1, qh, ()));
                 }
                 "zxdg_output_manager_v1" => {
-                    state.xdg_output_manager = Some(
-                        registry.bind::<ZxdgOutputManagerV1, _, _>(
-                            name,
-                            version.min(3),
-                            qh,
-                            (),
-                        ),
-                    );
+                    state.xdg_output_manager = Some(registry.bind::<ZxdgOutputManagerV1, _, _>(
+                        name,
+                        version.min(3),
+                        qh,
+                        (),
+                    ));
                 }
                 _ => {}
             },
@@ -342,11 +337,23 @@ impl Dispatch<ZxdgOutputV1, OutputId> for WaylandState {
         match event {
             zxdg_output_v1::Event::LogicalPosition { x, y } => {
                 output.logical_origin = Some((x, y));
-                debug!(backend = BACKEND_NAME, output = id.0, x, y, "xdg-output logical origin");
+                debug!(
+                    backend = BACKEND_NAME,
+                    output = id.0,
+                    x,
+                    y,
+                    "xdg-output logical origin"
+                );
             }
             zxdg_output_v1::Event::LogicalSize { width, height } => {
                 output.logical_size = Some((width, height));
-                debug!(backend = BACKEND_NAME, output = id.0, width, height, "xdg-output logical size");
+                debug!(
+                    backend = BACKEND_NAME,
+                    output = id.0,
+                    width,
+                    height,
+                    "xdg-output logical size"
+                );
             }
             _ => {}
         }
@@ -364,10 +371,18 @@ impl Dispatch<ExtImageCopyCaptureCursorSessionV1, OutputId> for WaylandState {
     ) {
         match event {
             ext_image_copy_capture_cursor_session_v1::Event::Enter => {
-                debug!(backend = BACKEND_NAME, output = id.0, "cursor entered capture source");
+                debug!(
+                    backend = BACKEND_NAME,
+                    output = id.0,
+                    "cursor entered capture source"
+                );
             }
             ext_image_copy_capture_cursor_session_v1::Event::Leave => {
-                debug!(backend = BACKEND_NAME, output = id.0, "cursor left capture source");
+                debug!(
+                    backend = BACKEND_NAME,
+                    output = id.0,
+                    "cursor left capture source"
+                );
             }
             ext_image_copy_capture_cursor_session_v1::Event::Position { x, y } => {
                 state.send_pointer(*id, x, y);
