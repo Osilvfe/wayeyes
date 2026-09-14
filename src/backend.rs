@@ -16,7 +16,6 @@ impl CursorModel {
     #[allow(dead_code)]
     pub fn set_global(&mut self, point: Point) {
         self.global = Some(point);
-        self.try_calibrate();
     }
 
     pub fn target_in_surface(&self) -> Option<Point> {
@@ -47,11 +46,13 @@ mod tests {
     }
 
     #[test]
-    fn local_and_global_samples_calibrate_surface_origin() {
+    fn local_motion_calibrates_surface_origin_once_global_is_known() {
         let mut model = CursorModel::default();
-        model.set_local(Point::new(20.0, 30.0));
         model.set_global(Point::new(420.0, 230.0));
+        model.set_local(Point::new(20.0, 30.0));
+
         model.set_global(Point::new(500.0, 260.0));
+
         assert_eq!(model.target_in_surface(), Some(Point::new(100.0, 60.0)));
     }
 }
