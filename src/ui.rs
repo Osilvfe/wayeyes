@@ -11,7 +11,7 @@ use gtk::prelude::*;
 use gtk::{Application, ApplicationWindow, DrawingArea, EventControllerMotion};
 use tracing::{info, warn};
 
-use crate::backend::{BackendEvent, CursorModel, portal};
+use crate::backend::{self, BackendEvent, CursorModel, image_copy, portal};
 use crate::cli::{BackendKind, Cli, RendererKind};
 use crate::geometry::{Point, eye_pair, pupil_center};
 
@@ -103,8 +103,14 @@ fn build_ui(app: &Application, cli: &Cli) {
     }
     area.add_controller(motion);
 
-    if matches!(cli.backend, BackendKind::Auto | BackendKind::Portal) {
-        attach_backend(portal::spawn(), Rc::clone(&cursor), area.clone());
+    let receiver = match cli.backend {
+        BackendKind::Auto => Some(backend::spawn_auto()),
+        BackendKind::Wayland => Some(image_copy::spawn()),
+        BackendKind::Portal => Some(portal::spawn()),
+        BackendKind::Local => None,
+    };
+    if let Some(receiver) = receiver {
+        attach_backend(receiver, Rc::clone(&cursor), area.clone());
     }
 
     let window = ApplicationWindow::builder()
