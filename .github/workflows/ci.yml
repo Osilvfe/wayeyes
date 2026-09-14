@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Install GTK4 development packages
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev pkg-config
+      - name: Format
+        run: cargo fmt --check
+      - name: Check
+        run: cargo check --all-targets
+      - name: Test
+        run: cargo test --all-targets
