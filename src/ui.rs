@@ -1,11 +1,12 @@
-use std::{cell::RefCell, f64::consts::TAU, rc::Rc};
+use std::{cell::RefCell, f64::consts::TAU, rc::Rc, time::Duration};
 
+use gtk::glib::{self, ControlFlow};
 use gtk::prelude::*;
 use gtk::{Application, ApplicationWindow, DrawingArea, EventControllerMotion};
-use tracing::info;
+use tracing::{info, warn};
 
-use crate::backend::CursorModel;
-use crate::cli::Cli;
+use crate::backend::{BackendEvent, CursorModel, portal};
+use crate::cli::{BackendKind, Cli};
 use crate::geometry::{Point, eye_pair, pupil_center};
 
 const APP_ID: &str = "io.github.osilvfe.wayeyes";
@@ -47,6 +48,10 @@ fn build_ui(app: &Application, cli: &Cli) {
     }
     area.add_controller(motion);
 
+    if matches!(cli.backend, BackendKind::Auto | BackendKind::Portal) {
+        attach_backend(portal::spawn(), Rc::clone(&cursor), area.clone());
+    }
+
     let window = ApplicationWindow::builder()
         .application(app)
         .title("WayEyes")
@@ -60,6 +65,31 @@ fn build_ui(app: &Application, cli: &Cli) {
     }
 
     window.present();
+}
+
+fn attach_backend(
+    receiver: std::sync::mpsc::Receiver<BackendEvent>,
+    cursor: Rc<RefCell<CursorModel>>,
+    area: DrawingArea,
+) {
+    glib::timeout_add_local(Duration::from_millis(8), move || {
+        while let Ok(event) = receiver.try_recv() {
+            match event {
+                BackendEvent::Ready { backend, streams } => {
+                    info!(backend, streams, "pointer backend ready");
+                }
+                BackendEvent::Pointer(point) => {
+                    cursor.borrow_mut().set_global(point);
+                    area.queue_draw();
+                }
+                BackendEvent::Failed { backend, message } => {
+                    warn!(backend, %message, "pointer backend failed; local tracking remains available");
+                }
+            }
+        }
+
+        ControlFlow::Continue
+    });
 }
 
 fn draw_eyes(cr: &gtk::cairo::Context, width: f64, height: f64, target: Option<Point>) {
