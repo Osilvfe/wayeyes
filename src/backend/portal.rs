@@ -254,7 +254,7 @@ fn run_pipewire(
                 }
             })
             .process(|stream, data| {
-                let Some(mut buffer) = stream.dequeue_buffer() else {
+                let Some(buffer) = stream.dequeue_buffer() else {
                     return;
                 };
                 let Some(cursor) = buffer.find_meta::<spa::buffer::meta::MetaCursor>() else {
