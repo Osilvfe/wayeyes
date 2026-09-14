@@ -271,14 +271,11 @@ fn run(tx: Sender<BackendEvent>) -> anyhow::Result<()> {
     let _registry = display.get_registry(&qh, ());
     let mut state = WaylandState::new(tx.clone());
 
-    // First roundtrip discovers and binds globals.
     queue
         .roundtrip(&mut state)
         .context("failed to enumerate Wayland globals")?;
     state.validate_globals()?;
 
-    // Create output capture sources, lightweight constraint sessions and
-    // xdg-output metadata objects. No image frames are ever requested.
     state.prepare_outputs(&qh);
     queue
         .roundtrip(&mut state)
@@ -393,7 +390,10 @@ impl Dispatch<wl_output::WlOutput, OutputId> for WaylandState {
             return;
         };
 
-        if let wl_output::Event::Geometry { x, y, transform, .. } = event {
+        if let wl_output::Event::Geometry {
+            x, y, transform, ..
+        } = event
+        {
             output.wl_origin = Some((x, y));
             if let WEnum::Value(transform) = transform {
                 output.transform = transform;
