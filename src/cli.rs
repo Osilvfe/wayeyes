@@ -2,8 +2,10 @@ use clap::{Parser, ValueEnum};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum BackendKind {
-    /// Pick the best available backend, preferring the ScreenCast portal.
+    /// Pick the best available backend: direct Wayland, then Portal, then local.
     Auto,
+    /// Use ext-image-copy-capture-v1 directly on the Wayland compositor.
+    Wayland,
     /// Use XDG Desktop Portal + PipeWire cursor metadata.
     Portal,
     /// Track the pointer only while it is over the WayEyes surface.
