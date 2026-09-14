@@ -213,8 +213,7 @@ fn run(tx: Sender<BackendEvent>) -> anyhow::Result<()> {
 
     info!(
         backend = BACKEND_NAME,
-        streams,
-        "direct Wayland cursor capture ready"
+        streams, "direct Wayland cursor capture ready"
     );
 
     loop {
@@ -240,8 +239,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for WaylandState {
                 version,
             } => match interface.as_str() {
                 "wl_seat" => {
-                    let seat =
-                        registry.bind::<wl_seat::WlSeat, _, _>(name, version.min(9), qh, ());
+                    let seat = registry.bind::<wl_seat::WlSeat, _, _>(name, version.min(9), qh, ());
                     state.seats.push(seat);
                 }
                 "wl_output" => {
