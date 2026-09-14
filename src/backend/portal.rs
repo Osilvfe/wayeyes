@@ -93,7 +93,7 @@ async fn open_portal() -> anyhow::Result<(Vec<ScreencastStream>, OwnedFd)> {
             &session,
             SelectSourcesOptions::default()
                 .set_cursor_mode(CursorMode::Metadata)
-                .set_sources(SourceType::Monitor)
+                .set_sources(Some(SourceType::Monitor.into()))
                 .set_multiple(true)
                 .set_restore_token(None)
                 .set_persist_mode(PersistMode::DoNot),
@@ -240,7 +240,16 @@ fn run_pipewire(
                     "negotiated ScreenCast format"
                 );
 
-                if let Err(error) = request_cursor_metadata(stream) {
+                let result = cursor_metadata_param().and_then(|values| {
+                    let pod = spa::pod::Pod::from_bytes(&values)
+                        .ok_or_else(|| anyhow!("invalid metadata pod"))?;
+                    let mut params = [pod];
+                    stream
+                        .update_params(&mut params)
+                        .context("PipeWire rejected cursor metadata parameter")?;
+                    Ok(())
+                });
+                if let Err(error) = result {
                     warn!(backend = BACKEND_NAME, %error, "failed to request cursor metadata");
                 }
             })
@@ -264,7 +273,8 @@ fn run_pipewire(
             .context("failed to register PipeWire listener")?;
 
         let values = format_param()?;
-        let pod = spa::pod::Pod::from_bytes(&values).map_err(|_| anyhow!("invalid format pod"))?;
+        let pod = spa::pod::Pod::from_bytes(&values)
+            .ok_or_else(|| anyhow!("invalid format pod"))?;
         let mut params = [pod];
 
         stream
@@ -352,7 +362,7 @@ fn format_param() -> anyhow::Result<Vec<u8>> {
     Ok(serialized.0.into_inner())
 }
 
-fn request_cursor_metadata(stream: &pw::stream::StreamRef) -> anyhow::Result<()> {
+fn cursor_metadata_param() -> anyhow::Result<Vec<u8>> {
     let object = spa::pod::Object {
         type_: spa::utils::SpaTypes::ObjectParamMeta.as_raw(),
         id: spa::param::ParamType::Meta.as_raw(),
@@ -373,12 +383,6 @@ fn request_cursor_metadata(stream: &pw::stream::StreamRef) -> anyhow::Result<()>
         &spa::pod::Value::Object(object),
     )
     .map_err(|error| anyhow!("failed to serialize cursor metadata pod: {error}"))?;
-    let values = serialized.0.into_inner();
-    let pod = spa::pod::Pod::from_bytes(&values).map_err(|_| anyhow!("invalid metadata pod"))?;
-    let mut params = [pod];
-    stream
-        .update_params(&mut params)
-        .context("PipeWire rejected cursor metadata parameter")?;
 
-    Ok(())
+    Ok(serialized.0.into_inner())
 }
