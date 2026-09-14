@@ -6,7 +6,7 @@ use tracing::info;
 
 use crate::backend::CursorModel;
 use crate::cli::Cli;
-use crate::geometry::{eye_pair, pupil_center, Point};
+use crate::geometry::{Point, eye_pair, pupil_center};
 
 const APP_ID: &str = "io.github.osilvfe.wayeyes";
 
@@ -27,7 +27,12 @@ fn build_ui(app: &Application, cli: &Cli) {
     {
         let cursor = Rc::clone(&cursor);
         area.set_draw_func(move |_area, cr, width, height| {
-            draw_eyes(cr, width as f64, height as f64, cursor.borrow().target_in_surface());
+            draw_eyes(
+                cr,
+                width as f64,
+                height as f64,
+                cursor.borrow().target_in_surface(),
+            );
         });
     }
 
