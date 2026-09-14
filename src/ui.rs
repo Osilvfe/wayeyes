@@ -171,12 +171,7 @@ fn draw_eyes(cr: &gtk::cairo::Context, width: f64, height: f64, target: Option<P
     }
 }
 
-fn draw_eye_outline(
-    cr: &gtk::cairo::Context,
-    center: Point,
-    radius_x: f64,
-    radius_y: f64,
-) {
+fn draw_eye_outline(cr: &gtk::cairo::Context, center: Point, radius_x: f64, radius_y: f64) {
     let _ = cr.save();
     cr.translate(center.x, center.y);
     cr.scale(radius_x, radius_y);
