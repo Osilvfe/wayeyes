@@ -19,7 +19,10 @@ const APP_ID: &str = "io.github.osilvfe.wayeyes";
 static FIRST_DRAW: AtomicBool = AtomicBool::new(true);
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
-    let app = Application::builder().application_id(APP_ID).build();
+    let app = Application::builder()
+        .application_id(APP_ID)
+        .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+        .build();
 
     app.connect_activate(move |app| build_ui(app, &cli));
 
