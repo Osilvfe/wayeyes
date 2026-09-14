@@ -273,8 +273,8 @@ fn run_pipewire(
             .context("failed to register PipeWire listener")?;
 
         let values = format_param()?;
-        let pod = spa::pod::Pod::from_bytes(&values)
-            .ok_or_else(|| anyhow!("invalid format pod"))?;
+        let pod =
+            spa::pod::Pod::from_bytes(&values).ok_or_else(|| anyhow!("invalid format pod"))?;
         let mut params = [pod];
 
         stream
