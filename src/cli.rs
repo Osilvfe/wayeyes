@@ -2,8 +2,10 @@ use clap::{Parser, ValueEnum};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum BackendKind {
-    /// Pick the best available backend. Currently falls back to local pointer events.
+    /// Pick the best available backend, preferring the ScreenCast portal.
     Auto,
+    /// Use XDG Desktop Portal + PipeWire cursor metadata.
+    Portal,
     /// Track the pointer only while it is over the WayEyes surface.
     Local,
 }
