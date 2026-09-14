@@ -163,7 +163,8 @@ fn run_pipewire(
 ) -> anyhow::Result<()> {
     pw::init();
 
-    let mainloop = pw::main_loop::MainLoopBox::new(None).context("failed to create PipeWire loop")?;
+    let mainloop =
+        pw::main_loop::MainLoopBox::new(None).context("failed to create PipeWire loop")?;
     let context = pw::context::ContextBox::new(mainloop.loop_(), None)
         .context("failed to create PipeWire context")?;
     let core = context
