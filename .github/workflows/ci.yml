@@ -12,8 +12,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Install GTK4 development packages
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev pkg-config
+      - name: Install desktop development packages
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libpipewire-0.3-dev pkg-config
       - name: Format
         run: cargo fmt --check
       - name: Check
