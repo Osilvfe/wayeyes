@@ -12,13 +12,15 @@ use gtk::{Application, ApplicationWindow, DrawingArea, EventControllerMotion};
 use tracing::{info, warn};
 
 use crate::backend::{BackendEvent, CursorModel, portal};
-use crate::cli::{BackendKind, Cli};
+use crate::cli::{BackendKind, Cli, RendererKind};
 use crate::geometry::{Point, eye_pair, pupil_center};
 
 const APP_ID: &str = "io.github.osilvfe.wayeyes";
 static FIRST_DRAW: AtomicBool = AtomicBool::new(true);
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
+    configure_renderer(cli.renderer);
+
     let app = Application::builder()
         .application_id(APP_ID)
         .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
@@ -30,6 +32,37 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
     // a second time, otherwise options such as `--backend` are rejected by GTK.
     app.run_with_args(&["wayeyes"]);
     Ok(())
+}
+
+fn configure_renderer(renderer: Option<RendererKind>) {
+    match renderer {
+        Some(RendererKind::Auto) => {
+            // SAFETY: renderer selection happens during single-threaded startup,
+            // before GTK and any pointer backend threads are created.
+            unsafe { std::env::remove_var("GSK_RENDERER") };
+        }
+        Some(kind) => {
+            let name = kind
+                .gsk_name()
+                .expect("non-auto renderer must have a GSK name");
+            // SAFETY: renderer selection happens during single-threaded startup,
+            // before GTK and any pointer backend threads are created.
+            unsafe { std::env::set_var("GSK_RENDERER", name) };
+        }
+        None if std::env::var_os("GSK_RENDERER").is_none() => {
+            // WayEyes currently consists entirely of simple 2D Cairo drawing.
+            // Cairo is intentionally the conservative default because some
+            // Wayland Vulkan stacks render GtkDrawingArea content as black.
+            // SAFETY: this runs before GTK and backend threads are created.
+            unsafe { std::env::set_var("GSK_RENDERER", "cairo") };
+        }
+        None => {}
+    }
+
+    info!(
+        renderer = %std::env::var("GSK_RENDERER").unwrap_or_else(|_| "auto".into()),
+        "selected GSK renderer"
+    );
 }
 
 fn build_ui(app: &Application, cli: &Cli) {
@@ -118,8 +151,7 @@ fn draw_eyes(cr: &gtk::cairo::Context, width: f64, height: f64, target: Option<P
     let eyes = eye_pair(width, height);
     let target = target.unwrap_or(Point::new(width * 0.5, height * 0.5));
 
-    // Use deliberately high contrast while the renderer is being validated.
-    cr.set_source_rgb(0.18, 0.18, 0.18);
+    cr.set_source_rgb(0.96, 0.96, 0.96);
     let _ = cr.paint();
 
     for eye in eyes {
@@ -128,7 +160,7 @@ fn draw_eyes(cr: &gtk::cairo::Context, width: f64, height: f64, target: Option<P
         let pupil = pupil_center(eye, target);
         cr.new_path();
         cr.arc(pupil.x, pupil.y, eye.pupil_radius, 0.0, TAU);
-        cr.set_source_rgb(0.0, 0.0, 0.0);
+        cr.set_source_rgb(0.05, 0.05, 0.05);
         let _ = cr.fill();
     }
 }
@@ -146,7 +178,7 @@ fn draw_eye_outline(
     cr.arc(0.0, 0.0, 1.0, 0.0, TAU);
     cr.set_source_rgb(1.0, 1.0, 1.0);
     let _ = cr.fill_preserve();
-    cr.set_source_rgb(0.0, 0.0, 0.0);
+    cr.set_source_rgb(0.08, 0.08, 0.08);
     cr.set_line_width(3.0 / radius_x.min(radius_y));
     let _ = cr.stroke();
     let _ = cr.restore();
