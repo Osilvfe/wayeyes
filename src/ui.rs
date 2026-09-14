@@ -26,7 +26,12 @@ fn build_ui(app: &Application, cli: &Cli) {
     info!(backend = ?cli.backend, "starting WayEyes");
 
     let cursor = Rc::new(RefCell::new(CursorModel::default()));
-    let area = DrawingArea::builder().hexpand(true).vexpand(true).build();
+    let area = DrawingArea::builder()
+        .content_width(cli.width.max(120))
+        .content_height(cli.height.max(80))
+        .hexpand(true)
+        .vexpand(true)
+        .build();
 
     {
         let cursor = Rc::clone(&cursor);
@@ -103,17 +108,19 @@ fn draw_eyes(cr: &gtk::cairo::Context, width: f64, height: f64, target: Option<P
     let _ = cr.paint();
 
     for eye in eyes {
+        // Paint the whole eye while the ellipse transform is active. Keeping
+        // construction and painting under the same CTM avoids backend-specific
+        // surprises around restoring a transformed path before fill/stroke.
         let _ = cr.save();
         cr.translate(eye.center.x, eye.center.y);
         cr.scale(eye.radius_x, eye.radius_y);
         cr.arc(0.0, 0.0, 1.0, 0.0, TAU);
-        let _ = cr.restore();
-
         cr.set_source_rgb(1.0, 1.0, 1.0);
         let _ = cr.fill_preserve();
         cr.set_source_rgb(0.08, 0.08, 0.08);
-        cr.set_line_width(2.0);
+        cr.set_line_width(2.5 / eye.radius_x.min(eye.radius_y));
         let _ = cr.stroke();
+        let _ = cr.restore();
 
         let pupil = pupil_center(eye, target);
         cr.arc(pupil.x, pupil.y, eye.pupil_radius, 0.0, TAU);
