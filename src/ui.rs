@@ -15,7 +15,13 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
     let app = Application::builder().application_id(APP_ID).build();
 
     app.connect_activate(move |app| build_ui(app, &cli));
-    app.run();
+
+    // clap owns WayEyes' CLI. Do not let GApplication parse the process arguments
+    // a second time, otherwise options such as `--backend` are rejected by GTK.
+    let argv0 = std::env::args_os()
+        .next()
+        .unwrap_or_else(|| "wayeyes".into());
+    app.run_with_args_os(&[argv0]);
     Ok(())
 }
 
