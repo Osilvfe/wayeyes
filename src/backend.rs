@@ -1,7 +1,10 @@
 pub mod image_copy;
 pub mod portal;
 
-use std::{sync::mpsc::{self, Receiver}, thread};
+use std::{
+    sync::mpsc::{self, Receiver},
+    thread,
+};
 
 use crate::geometry::Point;
 
