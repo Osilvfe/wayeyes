@@ -362,6 +362,13 @@ fn format_param() -> anyhow::Result<Vec<u8>> {
     Ok(serialized.0.into_inner())
 }
 
+/// Size of a cursor metadata block holding a `width` x `height` RGBA cursor bitmap.
+fn cursor_meta_size(width: i32, height: i32) -> i32 {
+    (mem::size_of::<spa::sys::spa_meta_cursor>() + mem::size_of::<spa::sys::spa_meta_bitmap>())
+        as i32
+        + width * height * 4
+}
+
 fn cursor_metadata_param() -> anyhow::Result<Vec<u8>> {
     let object = spa::pod::Object {
         type_: spa::utils::SpaTypes::ObjectParamMeta.as_raw(),
@@ -371,9 +378,19 @@ fn cursor_metadata_param() -> anyhow::Result<Vec<u8>> {
                 spa::sys::SPA_PARAM_META_type,
                 spa::pod::Value::Id(spa::utils::Id(spa::sys::SPA_META_Cursor)),
             ),
+            // Compositors such as Mutter offer cursor metadata as a size range with room for the
+            // cursor bitmap; a fixed size of only spa_meta_cursor never intersects that range, so
+            // no cursor metadata would be attached to the buffers.
             spa::pod::Property::new(
                 spa::sys::SPA_PARAM_META_size,
-                spa::pod::Value::Int(mem::size_of::<spa::sys::spa_meta_cursor>() as i32),
+                spa::pod::Value::Choice(spa::pod::ChoiceValue::Int(spa::utils::Choice(
+                    spa::utils::ChoiceFlags::empty(),
+                    spa::utils::ChoiceEnum::Range {
+                        default: cursor_meta_size(64, 64),
+                        min: cursor_meta_size(1, 1),
+                        max: cursor_meta_size(1024, 1024),
+                    },
+                ))),
             ),
         ],
     };
